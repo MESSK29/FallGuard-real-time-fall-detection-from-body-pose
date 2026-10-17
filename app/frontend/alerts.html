@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alert History - FallGuard Detection Log</title>
+  <meta name="description" content="View session alert history, fall confirmation records, and Telegram delivery status with client isolation and on-device privacy.">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Top Safety Disclaimer Banner -->
+  <aside class="disclaimer-banner" role="alert">
+    <div class="container">
+      <span class="disclaimer-badge">Prototype</span>
+      <span>Tested on acted falls. <strong>Not a certified medical device</strong> or emergency response service.</span>
+    </div>
+  </aside>
+
+  <!-- Shared Navigation Bar -->
+  <header class="site-header">
+    <div class="container">
+      <nav class="navbar" aria-label="Main Navigation">
+        <a href="index.html" class="brand" aria-label="FallGuard Home">
+          <div class="brand-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <span>FallGuard</span>
+        </a>
+
+        <ul class="nav-links">
+          <li><a href="index.html" class="nav-link">Home</a></li>
+          <li><a href="about.html" class="nav-link">About & Privacy</a></li>
+          <li><a href="monitor.html" class="nav-link">Live Monitor</a></li>
+          <li><a href="alerts.html" class="nav-link active">Alert History</a></li>
+        </ul>
+
+        <div class="nav-actions">
+          <button id="theme-toggle" class="btn btn-icon-only" aria-label="Toggle theme">
+            <!-- Populated via main.js -->
+          </button>
+          <a href="monitor.html" class="btn btn-primary btn-sm">Open Monitor</a>
+          <button id="mobile-menu-toggle" class="mobile-toggle" aria-label="Open navigation menu">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero / Header Area -->
+    <header class="monitor-hero">
+      <div class="container">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <span class="section-tag">Audit Log</span>
+            <h1 class="section-title" style="margin-bottom: 0.25rem;">Alert History</h1>
+            <p class="section-subtitle">Real-time log of fall detections and test notifications for your private browser session.</p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <span id="alerts-count-badge" class="fps-pill">0 Alerts</span>
+            <span class="connection-pill connected" title="Auto-refresh status">
+              <span class="connection-dot"></span>
+              Auto-refresh (5s)
+            </span>
+            <button id="btn-download-csv" class="btn btn-outline btn-sm">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Download CSV</span>
+            </button>
+            <button id="btn-clear-history" class="btn btn-outline btn-sm" style="color: var(--alert); border-color: rgba(220, 38, 38, 0.4);">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+              <span>Clear History</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Table Container -->
+    <div class="container" style="margin-top: 1.5rem; margin-bottom: 3.5rem;">
+      <div class="card" style="padding: 0; overflow: hidden; border-radius: var(--radius-lg); box-shadow: var(--shadow-md);">
+        
+        <!-- Loading State -->
+        <div id="alerts-loading-state" class="table-state-box" style="display: flex; padding: 4rem 2rem; flex-direction: column; align-items: center; justify-content: center; gap: 1rem;">
+          <div class="spinner"></div>
+          <p style="color: var(--text-muted); font-size: 0.95rem; font-weight: 500;">Loading alerts...</p>
+        </div>
+
+        <!-- Empty State -->
+        <div id="alerts-empty-state" class="table-state-box" style="display: none; padding: 4.5rem 2rem; text-align: center;">
+          <div style="width: 64px; height: 64px; margin: 0 auto 1.25rem; border-radius: 50%; background: var(--bg-subtle); display: flex; align-items: center; justify-content: center; color: var(--safe);">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <polyline points="9 12 11 14 15 10"></polyline>
+            </svg>
+          </div>
+          <h3 style="font-size: 1.25rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem;">No Alerts Recorded</h3>
+          <p style="color: var(--text-muted); font-size: 0.9rem; max-width: 440px; margin: 0 auto 1.5rem; line-height: 1.5;">
+            Your session has zero detected fall events or test notifications. Real-time alerts generated while monitoring will appear here automatically.
+          </p>
+          <a href="monitor.html" class="btn btn-primary btn-sm">Launch Live Monitor</a>
+        </div>
+
+        <!-- Table View -->
+        <div id="alerts-table-container" style="display: none; overflow-x: auto;">
+          <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--border-color); background: var(--bg-subtle);">
+                <th style="padding: 1rem 1.25rem; font-weight: 600; color: var(--text-muted);">Timestamp</th>
+                <th style="padding: 1rem 1.25rem; font-weight: 600; color: var(--text-muted);">Peak Probability</th>
+                <th style="padding: 1rem 1.25rem; font-weight: 600; color: var(--text-muted);">Status</th>
+                <th style="padding: 1rem 1.25rem; font-weight: 600; color: var(--text-muted);">Telegram Sent</th>
+                <th style="padding: 1rem 1.25rem; font-weight: 600; color: var(--text-muted);">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="alerts-table-body">
+              <!-- Populated dynamically via alerts.js -->
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+  <!-- Shared Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <div class="brand">
+            <div class="brand-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+            </div>
+            <span>FallGuard</span>
+          </div>
+          <p>
+            An academic student mini-project exploring privacy-preserving edge computer vision for elder care assistance.
+          </p>
+        </div>
+
+        <div class="footer-column">
+          <h5>System</h5>
+          <ul>
+            <li><a href="index.html">Overview</a></li>
+            <li><a href="monitor.html">Live Monitoring</a></li>
+            <li><a href="alerts.html">Alert History</a></li>
+            <li><a href="about.html#approach">Pipeline Architecture</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-column">
+          <h5>Safety & Privacy</h5>
+          <ul>
+            <li><a href="about.html#privacy">Zero Video Storage</a></li>
+            <li><a href="about.html#limitations">Known Limitations</a></li>
+            <li><a href="about.html#disclaimer">Medical Disclaimer</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-column">
+          <h5>Project Info</h5>
+          <ul>
+            <li><a href="https://github.com" target="_blank" rel="noopener">Source Code</a></li>
+            <li><a href="about.html">Technical Documentation</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>&copy; FallGuard Student Project. Released under educational use.</div>
+        <div>⚠️ Experimental Prototype &bull; Not a certified medical device. Tested on acted falls. Not an emergency response service.</div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scripts -->
+  <script src="js/main.js"></script>
+  <script src="js/alerts.js"></script>
+</body>
+</html>

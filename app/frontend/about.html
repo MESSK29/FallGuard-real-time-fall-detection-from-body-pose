@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About FallGuard - Problem, Approach, & Privacy Architecture</title>
+  <meta name="description" content="Learn about FallGuard's approach to elderly fall detection, solving the 'long lie' problem with zero raw video storage and strict edge privacy.">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Top Safety Disclaimer Banner -->
+  <aside class="disclaimer-banner" role="alert">
+    <div class="container">
+      <span class="disclaimer-badge">Prototype</span>
+      <span>Tested on acted falls. <strong>Not a certified medical device</strong> or emergency response service.</span>
+    </div>
+  </aside>
+
+  <!-- Shared Navigation Bar -->
+  <header class="site-header">
+    <div class="container">
+      <nav class="navbar" aria-label="Main Navigation">
+        <a href="index.html" class="brand" aria-label="FallGuard Home">
+          <div class="brand-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <span>FallGuard</span>
+        </a>
+
+        <ul class="nav-links">
+          <li><a href="index.html" class="nav-link">Home</a></li>
+          <li><a href="about.html" class="nav-link active">About & Privacy</a></li>
+          <li><a href="monitor.html" class="nav-link">Live Monitor</a></li>
+        </ul>
+
+        <div class="nav-actions">
+          <button id="theme-toggle" class="btn btn-icon-only" aria-label="Toggle theme">
+            <!-- Populated via main.js -->
+          </button>
+          <a href="monitor.html" class="btn btn-primary btn-sm">Start Monitoring</a>
+          <button id="mobile-menu-toggle" class="mobile-toggle" aria-label="Open navigation menu">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- Page Header -->
+    <header class="about-hero">
+      <div class="container">
+        <span class="section-tag">Project Overview & Ethics</span>
+        <h1 class="section-title">The FallGuard Mission & Technical Design</h1>
+        <p class="section-subtitle">
+          Designing intelligent elder care assistance that prioritizes human dignity, robust detection, and uncompromising data privacy.
+        </p>
+      </div>
+    </header>
+
+    <div class="section">
+      <div class="container">
+        <div class="about-content-grid">
+          <!-- Main Content -->
+          <article class="prose">
+            <section id="problem">
+              <h2>The Problem: Falls and the "Long Lie"</h2>
+              <p>
+                Falls represent the leading cause of accidental injury and trauma among adults aged 65 and older worldwide. 
+                According to the World Health Organization (WHO), over 684,000 fatal falls occur annually, with adults over 60 suffering the greatest proportion of fatal injuries.
+              </p>
+              <p>
+                However, in elder care environments, an equally grave consequence is what geriatric specialists term the <strong>"Long Lie"</strong>—remaining on the floor for more than an hour after a fall due to being injured, disoriented, or unable to reach a phone or pull-cord.
+              </p>
+              <ul>
+                <li><strong>Severe Medical Complications:</strong> Prolonged immobility on a cold floor frequently causes hypothermia, dehydration, pressure ulcers, and acute rhabdomyolysis (muscle breakdown leading to kidney damage).</li>
+                <li><strong>Dramatically Increased Mortality:</strong> Research indicates that individuals experiencing a long lie of over an hour have a 6-month mortality rate approaching 50%, even when no initial bone fracture occurred.</li>
+                <li><strong>Wearable Pendant Failure:</strong> Up to 80% of seniors do not consistently wear alarm pendants (especially during nighttime bathroom visits, where fall risks peak), or forget to press the alert button when panic or trauma sets in.</li>
+              </ul>
+            </section>
+
+            <section id="approach">
+              <h2>Our Approach: Pure Edge Kinematics</h2>
+              <p>
+                FallGuard replaces cumbersome wearables and invasive video surveillance with a lightweight, vision-based edge pipeline. 
+                Instead of processing heavy pixels through power-hungry neural networks on cloud servers, FallGuard runs entirely on the host laptop CPU:
+              </p>
+              <ul>
+                <li><strong>MediaPipe Pose Landmark Extraction:</strong> Tracks 33 anatomical landmarks per frame on CPU at ~30 FPS.</li>
+                <li><strong>Torso Length Normalization:</strong> To make calculations invariant to whether the person is standing close to or far from the camera, all distances and velocities are normalized by the individual's torso length (distance between shoulder midpoint and hip midpoint).</li>
+                <li><strong>Engineered Kinematic Features:</strong> We compute torso tilt relative to gravity, vertical hip drop velocity, and bounding aspect ratio in real time.</li>
+                <li><strong>2-Second Sliding Window Statistics:</strong> Captures the dynamic transition from standing/walking into rapid descent and subsequent post-fall stillness.</li>
+                <li><strong>Dual-Stage Decision Logic:</strong> A machine learning model (XGBoost or Random Forest) detects the fall event, which triggers a secondary 2-second verification countdown to confirm the individual is incapacitated and lying still.</li>
+              </ul>
+            </section>
+
+            <section id="privacy">
+              <h2>Privacy Architecture: Zero Raw Video Transmission</h2>
+              <p>
+                Elderly individuals deserve privacy and autonomy in their own living spaces. Installing standard security cameras in bedrooms, bathrooms, and private corridors is often rejected as intrusive surveillance.
+              </p>
+              <p>
+                <strong>FallGuard is built with privacy by architecture, not by policy.</strong> No raw image or video clip is ever stored on disk, sent across the network, or uploaded to any server.
+              </p>
+
+              <!-- Comparison Table -->
+              <div class="comparison-table-wrapper">
+                <table class="comparison-table">
+                  <thead>
+                    <tr>
+                      <th>Factor</th>
+                      <th>Traditional CCTV / Cloud Cam</th>
+                      <th>FallGuard System</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>Raw Video Storage</strong></td>
+                      <td>Stored on NVR disk / Cloud storage</td>
+                      <td><span style="color:var(--safe); font-weight:700;">Never stored (0 bytes saved)</span></td>
+                    </tr>
+                    <tr>
+                      <td><strong>Facial & Environment Identity</strong></td>
+                      <td>Full facial recognition & room view</td>
+                      <td><span style="color:var(--safe); font-weight:700;">Pure abstract 3D coordinate numbers</span></td>
+                    </tr>
+                    <tr>
+                      <td><strong>Network Bandwidth</strong></td>
+                      <td>High Mbps video streaming required</td>
+                      <td><span style="color:var(--safe); font-weight:700;">Zero bandwidth (local inference)</span></td>
+                    </tr>
+                    <tr>
+                      <td><strong>Cloud Breach Vulnerability</strong></td>
+                      <td>Video footage can be leaked / hacked</td>
+                      <td><span style="color:var(--safe); font-weight:700;">Immune (no footage exists to steal)</span></td>
+                    </tr>
+                    <tr>
+                      <td><strong>Hardware Footprint</strong></td>
+                      <td>Expensive GPU servers or cloud fees</td>
+                      <td><span style="color:var(--safe); font-weight:700;">Runs on a budget laptop CPU</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="limitations">
+              <h2>Limitations & Edge Cases</h2>
+              <p>
+                As an academic project, FallGuard provides high interpretability and efficiency, but users and evaluators must understand its operational constraints:
+              </p>
+              <ul>
+                <li><strong>Severe Visual Occlusion:</strong> If a person falls behind high-backed furniture, a kitchen counter, or becomes completely concealed beneath heavy bedding, optical landmarks cannot be captured.</li>
+                <li><strong>Intentional Low-Lying Postures:</strong> Floor exercises (yoga, stretching) or playing with pets on the floor may resemble a fall state if the person remains static, though normal breathing/arm adjustments mitigate this.</li>
+                <li><strong>Lighting & Contrast Conditions:</strong> MediaPipe relies on standard optical cameras. In pitch-black rooms, pose detection degrades without infrared or ambient night-lighting.</li>
+                <li><strong>Acted vs. Real-World Fall Dynamics:</strong> The model is trained and benchmarked on volunteer-enacted fall datasets (e.g., UR Fall, Le2i, or synthetic runs). Real elderly falls often exhibit distinct physiological dynamics (e.g., stumbling, grasping for handrails, slow sliding falls) that require ongoing dataset diversity.</li>
+              </ul>
+            </section>
+          </article>
+
+          <!-- Sidebar Sticky Information -->
+          <aside class="sidebar-box" id="disclaimer">
+            <h4>Safety & Disclaimer</h4>
+            <p>
+              Please read this operational disclaimer carefully before evaluating the FallGuard software prototype.
+            </p>
+
+            <div class="disclaimer-card">
+              <h5>Non-Medical Prototype</h5>
+              <p>
+                FallGuard is an educational student research project. 
+                <strong>It is a prototype tested on acted falls and is NOT a certified medical device, diagnostic tool, or replacement for professional caregiver supervision.</strong>
+              </p>
+            </div>
+
+            <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+              <h5 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--text-main);">Quick Architecture Specs</h5>
+              <ul style="font-size: 0.85rem; color: var(--text-muted); list-style: none; padding-left: 0;">
+                <li style="margin-bottom: 0.4rem;">&bull; <strong>Pose Model:</strong> MediaPipe Pose (33 points)</li>
+                <li style="margin-bottom: 0.4rem;">&bull; <strong>Hardware:</strong> Standard laptop CPU</li>
+                <li style="margin-bottom: 0.4rem;">&bull; <strong>Classifiers:</strong> Random Forest / XGBoost</li>
+                <li style="margin-bottom: 0.4rem;">&bull; <strong>Window:</strong> 2.0-sec sliding summary</li>
+                <li style="margin-bottom: 0.4rem;">&bull; <strong>Lying-Still Stage:</strong> ~2.0s post-trigger</li>
+              </ul>
+            </div>
+
+            <div style="margin-top: 1.5rem;">
+              <a href="monitor.html" class="btn btn-primary" style="width: 100%;">Launch Live Monitor</a>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Shared Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <div class="brand">
+            <div class="brand-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+            </div>
+            <span>FallGuard</span>
+          </div>
+          <p>
+            An academic student mini-project exploring privacy-preserving edge computer vision for elder care assistance.
+          </p>
+        </div>
+
+        <div class="footer-column">
+          <h5>System</h5>
+          <ul>
+            <li><a href="index.html">Overview</a></li>
+            <li><a href="monitor.html">Live Monitoring</a></li>
+            <li><a href="about.html#approach">Pipeline Architecture</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-column">
+          <h5>Safety & Privacy</h5>
+          <ul>
+            <li><a href="about.html#privacy">Zero Video Storage</a></li>
+            <li><a href="about.html#limitations">Known Limitations</a></li>
+            <li><a href="about.html#disclaimer">Medical Disclaimer</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-column">
+          <h5>Project Info</h5>
+          <ul>
+            <li><a href="https://github.com" target="_blank" rel="noopener">Source Code</a></li>
+            <li><a href="about.html">Technical Documentation</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>&copy; FallGuard Student Project. Released under educational use.</div>
+        <div>⚠️ Experimental Prototype &bull; Not a certified medical device.</div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

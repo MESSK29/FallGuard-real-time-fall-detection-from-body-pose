@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FallGuard - Privacy-Friendly Fall Detection for Elderly Care</title>
+  <meta name="description" content="FallGuard is an edge-based camera fall detection prototype for elderly care that preserves complete privacy by never storing or uploading raw video.">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Top Safety Disclaimer Banner -->
+  <aside class="disclaimer-banner" role="alert">
+    <div class="container">
+      <span class="disclaimer-badge">Prototype</span>
+      <span>Tested on acted falls. <strong>Not a certified medical device</strong> or emergency response service.</span>
+    </div>
+  </aside>
+
+  <!-- Shared Navigation Bar -->
+  <header class="site-header">
+    <div class="container">
+      <nav class="navbar" aria-label="Main Navigation">
+        <a href="index.html" class="brand" aria-label="FallGuard Home">
+          <div class="brand-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <span>FallGuard</span>
+        </a>
+
+        <ul class="nav-links">
+          <li><a href="index.html" class="nav-link active">Home</a></li>
+          <li><a href="about.html" class="nav-link">About & Privacy</a></li>
+          <li><a href="monitor.html" class="nav-link">Live Monitor</a></li>
+        </ul>
+
+        <div class="nav-actions">
+          <button id="theme-toggle" class="btn btn-icon-only" aria-label="Toggle theme">
+            <!-- Populated via main.js -->
+          </button>
+          <a href="monitor.html" class="btn btn-primary btn-sm">Start Monitoring</a>
+          <button id="mobile-menu-toggle" class="mobile-toggle" aria-label="Open navigation menu">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero Section -->
+    <section class="hero">
+      <div class="container">
+        <div class="hero-grid">
+          <div class="hero-content">
+            <div class="hero-pill">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+              <span>100% On-Device Pose Kinematics</span>
+            </div>
+
+            <h1 class="hero-title">
+              Privacy-Friendly <span class="highlight">Fall Detection</span> for Elderly Care
+            </h1>
+
+            <p class="hero-desc">
+              FallGuard protects seniors through edge-computed MediaPipe pose estimation. 
+              <strong>Zero raw video is ever stored or uploaded</strong>—only abstract 33-point skeleton coordinates and kinematic features are analyzed on standard laptop CPUs.
+            </p>
+
+            <div class="hero-actions">
+              <a href="monitor.html" class="btn btn-primary">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                <span>Start Monitoring</span>
+              </a>
+              <a href="about.html" class="btn btn-outline">Learn About Our Privacy Model</a>
+            </div>
+
+            <div class="hero-stats">
+              <div class="stat-item">
+                <h4>0 KB</h4>
+                <p>Raw Video Stored</p>
+              </div>
+              <div class="stat-item">
+                <h4>33</h4>
+                <p>Pose Landmarks</p>
+              </div>
+              <div class="stat-item">
+                <h4>~2.0s</h4>
+                <p>Lying-Still Verification</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Hero Skeleton Visual Card -->
+          <div class="hero-card">
+            <div class="hero-card-header">
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                <span class="status-badge safe">
+                  <span class="pulse-dot"></span>
+                  Active Sensing
+                </span>
+              </div>
+              <span style="font-size: 0.78rem; font-family: var(--font-mono); color: var(--text-faint);">CPU: 18% | 30 FPS</span>
+            </div>
+
+            <div class="skeleton-preview">
+              <!-- Illustrative 33-landmark pose skeleton -->
+              <svg class="skeleton-svg" viewBox="0 0 140 180">
+                <!-- Head -->
+                <circle cx="70" cy="25" r="10" stroke-width="2"/>
+                <!-- Neck & Spine -->
+                <line x1="70" y1="35" x2="70" y2="85"/>
+                <!-- Shoulders -->
+                <line x1="45" y1="48" x2="95" y2="48"/>
+                <!-- Left Arm -->
+                <line x1="45" y1="48" x2="35" y2="78"/>
+                <line x1="35" y1="78" x2="30" y2="108"/>
+                <!-- Right Arm -->
+                <line x1="95" y1="48" x2="105" y2="78"/>
+                <line x1="105" y1="78" x2="110" y2="108"/>
+                <!-- Hips -->
+                <line x1="52" y1="85" x2="88" y2="85"/>
+                <!-- Left Leg -->
+                <line x1="55" y1="85" x2="52" y2="130"/>
+                <line x1="52" y1="130" x2="50" y2="170"/>
+                <!-- Right Leg -->
+                <line x1="85" y1="85" x2="88" y2="130"/>
+                <line x1="88" y1="130" x2="90" y2="170"/>
+                <!-- Landmark Points -->
+                <circle cx="70" cy="25" r="3" fill="var(--primary)"/>
+                <circle cx="45" cy="48" r="3" fill="var(--primary)"/>
+                <circle cx="95" cy="48" r="3" fill="var(--primary)"/>
+                <circle cx="35" cy="78" r="2.5" fill="var(--primary)"/>
+                <circle cx="105" cy="78" r="2.5" fill="var(--primary)"/>
+                <circle cx="70" cy="85" r="3.5" fill="var(--primary)"/>
+                <circle cx="55" cy="85" r="3" fill="var(--primary)"/>
+                <circle cx="85" cy="85" r="3" fill="var(--primary)"/>
+                <circle cx="52" cy="130" r="2.5" fill="var(--primary)"/>
+                <circle cx="88" cy="130" r="2.5" fill="var(--primary)"/>
+              </svg>
+              <div class="privacy-tag">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+                <span>Landmarks Only &bull; Video Discarded</span>
+              </div>
+            </div>
+
+            <div class="hero-card-footer">
+              <div class="metric-mini">
+                <div class="metric-mini-label">Torso Angle</div>
+                <div class="metric-mini-val" id="hero-torso-angle">12.4°</div>
+              </div>
+              <div class="metric-mini">
+                <div class="metric-mini-label">Vert. Speed</div>
+                <div class="metric-mini-val" id="hero-hip-speed">0.04 m/s</div>
+              </div>
+              <div class="metric-mini">
+                <div class="metric-mini-label">Aspect Ratio</div>
+                <div class="metric-mini-val" id="hero-aspect-ratio">0.48</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- How It Works Section (4 Steps) -->
+    <section class="section section-alt">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Architecture Workflow</span>
+          <h2 class="section-title">How FallGuard Works in 4 Steps</h2>
+          <p class="section-subtitle">
+            From optical sensor to validated emergency alert, every step is designed for high speed, zero video leaks, and minimized false alarms.
+          </p>
+        </div>
+
+        <div class="steps-grid">
+          <!-- Step 1: Camera -->
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                <circle cx="12" cy="13" r="4"></circle>
+              </svg>
+            </div>
+            <h3 class="step-title">Camera Feed</h3>
+            <p class="step-desc">
+              Standard local camera captures raw video in volatile RAM. Frames are immediately handed to the on-device pose estimator and purged.
+            </p>
+            <div class="step-privacy-note">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span>Zero footage saved</span>
+            </div>
+          </div>
+
+          <!-- Step 2: Pose Skeleton -->
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="5" r="3"></circle>
+                <line x1="12" y1="8" x2="12" y2="16"></line>
+                <line x1="7" y1="11" x2="17" y2="11"></line>
+                <line x1="7" y1="21" x2="12" y2="16"></line>
+                <line x1="17" y1="21" x2="12" y2="16"></line>
+              </svg>
+            </div>
+            <h3 class="step-title">Pose Skeleton</h3>
+            <p class="step-desc">
+              MediaPipe Pose extracts 33 key landmark coordinates on CPU. We compute torso angles, hip heights, and vertical speeds normalized by torso length.
+            </p>
+            <div class="step-privacy-note">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span>Pure coordinate data</span>
+            </div>
+          </div>
+
+          <!-- Step 3: AI Classifier -->
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+                <rect x="9" y="9" width="6" height="6"></rect>
+                <line x1="9" y1="1" x2="9" y2="4"></line>
+                <line x1="15" y1="1" x2="15" y2="4"></line>
+                <line x1="9" y1="20" x2="9" y2="23"></line>
+                <line x1="15" y1="20" x2="15" y2="23"></line>
+                <line x1="20" y1="9" x2="23" y2="9"></line>
+                <line x1="20" y1="14" x2="23" y2="14"></line>
+                <line x1="1" y1="9" x2="4" y2="9"></line>
+                <line x1="1" y1="14" x2="4" y2="14"></line>
+              </svg>
+            </div>
+            <h3 class="step-title">AI Classifier</h3>
+            <p class="step-desc">
+              Machine learning models (Random Forest & XGBoost) continuously analyze 2-second sliding temporal windows (min, max, mean, delta) using a shared <code>features.py</code>.
+            </p>
+            <div class="step-privacy-note">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span>Temporal dynamics</span>
+            </div>
+          </div>
+
+          <!-- Step 4: Alert -->
+          <div class="step-card">
+            <div class="step-num">4</div>
+            <div class="step-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+              </svg>
+            </div>
+            <h3 class="step-title">Verified Alert</h3>
+            <p class="step-desc">
+              A potential fall triggers a 2-second verification countdown. The alert is confirmed only if the person remains lying still, preventing false alarms from drops or sitting.
+            </p>
+            <div class="step-privacy-note">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span>Two-stage validation</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Key Features Section -->
+    <section class="section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Core Capabilities</span>
+          <h2 class="section-title">Built for Real-World Care & Dignity</h2>
+          <p class="section-subtitle">
+            Engineered specifically to balance sensitive elderly privacy with dependable, low-latency fall detection.
+          </p>
+        </div>
+
+        <div class="features-grid">
+          <!-- Feature 1 -->
+          <div class="feature-card">
+            <div class="feature-icon-wrapper">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+            </div>
+            <h3 class="feature-title">Privacy-By-Design</h3>
+            <p class="feature-desc">
+              Elderly care requires absolute personal dignity. In FallGuard, raw video never touches disk, cloud servers, or external databases. Telemetry is strictly numerical.
+            </p>
+          </div>
+
+          <!-- Feature 2 -->
+          <div class="feature-card">
+            <div class="feature-icon-wrapper">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                <line x1="8" y1="21" x2="16" y2="21"></line>
+                <line x1="12" y1="17" x2="12" y2="21"></line>
+              </svg>
+            </div>
+            <h3 class="feature-title">Runs on Standard Laptop CPU</h3>
+            <p class="feature-desc">
+              No expensive GPUs, specialized TPUs, or high-power server racks required. Runs smoothly in Python 3.10/3.11 on standard budget hardware.
+            </p>
+          </div>
+
+          <!-- Feature 3 -->
+          <div class="feature-card">
+            <div class="feature-icon-wrapper">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+            </div>
+            <h3 class="feature-title">Two-Stage Confirmation</h3>
+            <p class="feature-desc">
+              Eliminates the nuisance of false positives. When the classifier suspects a fall, it checks for a ~2-second subsequent "lying still" state before sending alerts.
+            </p>
+          </div>
+
+          <!-- Feature 4 -->
+          <div class="feature-card">
+            <div class="feature-icon-wrapper">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                <polyline points="2 17 12 22 22 17"></polyline>
+                <polyline points="2 12 12 17 22 12"></polyline>
+              </svg>
+            </div>
+            <h3 class="feature-title">Single Shared Pipeline</h3>
+            <p class="feature-desc">
+              Feature calculations are centralized in a unified <code>features.py</code> module. Offline training and online real-time inference share the exact same mathematical code.
+            </p>
+          </div>
+
+          <!-- Feature 5 -->
+          <div class="feature-card">
+            <div class="feature-icon-wrapper">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="9" cy="7" r="4"></circle>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+              </svg>
+            </div>
+            <h3 class="feature-title">Leak-Free GroupKFold</h3>
+            <p class="feature-desc">
+              Machine learning models are validated strictly grouped by video subject. Temporal sliding windows never contaminate validation folds.
+            </p>
+          </div>
+
+          <!-- Feature 6 -->
+          <div class="feature-card">
+            <div class="feature-icon-wrapper">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="20" x2="18" y2="10"></line>
+                <line x1="12" y1="20" x2="12" y2="4"></line>
+                <line x1="6" y1="20" x2="6" y2="14"></line>
+              </svg>
+            </div>
+            <h3 class="feature-title">Explainable AI with SHAP</h3>
+            <p class="feature-desc">
+              We inspect what kinematic signals drove the decision—whether vertical hip velocity, aspect ratio collapse, or torso angle change.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bottom CTA Section -->
+    <section class="section" style="padding-top: 0;">
+      <div class="container">
+        <div class="cta-box">
+          <h2>Ready to Test the System?</h2>
+          <p>
+            Launch the live monitoring interface to observe skeleton telemetry, pose metrics, and real-time fall verification in action.
+          </p>
+          <a href="monitor.html" class="btn btn-primary">Open Live Monitor</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Shared Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <div class="brand">
+            <div class="brand-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+            </div>
+            <span>FallGuard</span>
+          </div>
+          <p>
+            An academic student mini-project exploring privacy-preserving edge computer vision for elder care assistance.
+          </p>
+        </div>
+
+        <div class="footer-column">
+          <h5>System</h5>
+          <ul>
+            <li><a href="index.html">Overview</a></li>
+            <li><a href="monitor.html">Live Monitoring</a></li>
+            <li><a href="about.html#approach">Pipeline Architecture</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-column">
+          <h5>Safety & Privacy</h5>
+          <ul>
+            <li><a href="about.html#privacy">Zero Video Storage</a></li>
+            <li><a href="about.html#limitations">Known Limitations</a></li>
+            <li><a href="about.html#disclaimer">Medical Disclaimer</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-column">
+          <h5>Project Info</h5>
+          <ul>
+            <li><a href="https://github.com" target="_blank" rel="noopener">Source Code</a></li>
+            <li><a href="about.html">Technical Documentation</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>&copy; FallGuard Student Project. Released under educational use.</div>
+        <div>⚠️ Experimental Prototype &bull; Not a certified medical device.</div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

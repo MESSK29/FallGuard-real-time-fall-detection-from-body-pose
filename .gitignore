@@ -1,0 +1,44 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Environment Variables & Secrets
+.env
+.env.local
+
+# Data files (Privacy & Size: Never commit raw video, landmarks, or features)
+data/raw/*
+!data/raw/.gitkeep
+data/landmarks/*
+!data/landmarks/.gitkeep
+data/features/*
+!data/features/.gitkeep
+
+# Trained models (can be large binary blobs)
+models/*.pkl
+models/*.joblib
+models/*.json
+!models/.gitkeep
+
+# Evaluation reports & logs
+reports/*.png
+reports/*.html
+reports/*.json
+reports/*.csv
+!reports/.gitkeep
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
