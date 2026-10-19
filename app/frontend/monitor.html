@@ -44,6 +44,18 @@
     <span>Waking up the server, this can take up to a minute...</span>
   </div>
 
+  <!-- HTTPS Security Warning Banner -->
+  <div id="https-warning-banner" class="backend-error-banner" style="display: none; background: var(--warning-bg, #fffbeb); border-color: var(--warning, #f59e0b); color: #92400e;" role="alert">
+    <span>🔒⚠️</span>
+    <span>Camera needs HTTPS. Webcams require a secure connection when accessed outside localhost.</span>
+  </div>
+
+  <!-- Visibility Background Pause Notice Banner -->
+  <div id="visibility-warning-banner" class="backend-error-banner" style="display: none; background: var(--warning-bg, #fffbeb); border-color: var(--warning, #f59e0b); color: #92400e;" role="status">
+    <span>⏸️</span>
+    <span>Detection pauses when this page is not visible in the foreground.</span>
+  </div>
+
   <!-- Top Safety Disclaimer Banner -->
   <aside class="disclaimer-banner" role="alert">
     <div class="container">
@@ -200,6 +212,19 @@
                 <span>Stop</span>
               </button>
 
+              <!-- Switch Camera Button & Active Camera Badge -->
+              <div class="camera-switch-wrapper" id="camera-switch-wrapper">
+                <button id="btn-switch-camera" class="btn btn-outline btn-sm" title="Switch between front and back camera" aria-label="Switch camera">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 7h-3l-2-2H9L7 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"></path>
+                    <path d="M16 13a4 4 0 0 1-7.5 1.5"></path>
+                    <polyline points="8.5 10 8.5 14.5 13 14.5"></polyline>
+                  </svg>
+                  <span>Switch camera</span>
+                </button>
+                <span id="active-camera-label" class="active-camera-pill" title="Current camera">Front camera</span>
+              </div>
+
               <!-- Siren On/Off Toggle Button -->
               <button id="btn-toggle-siren" class="btn btn-outline btn-sm" title="Toggle siren alarm sound">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -231,8 +256,14 @@
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
             </svg>
             <div>
-              <strong>Privacy Guaranteed:</strong> Video frames NEVER leave your browser. Pose estimation executes locally in volatile CPU memory; zero image or video data is stored or transmitted.
+              <strong>Privacy Architecture:</strong> Video stays in the browser unless you switch on incident clips. When enabled, a 20-second clip without audio is sent only after a confirmed fall, to the caregiver's Telegram chat, and is deleted from the server after sending. Telegram bot chats are not end-to-end encrypted.
             </div>
+          </div>
+
+          <!-- Incident Clip Recording Pill Indicator -->
+          <div id="clip-recording-indicator" class="clip-recording-pill" style="display: none;">
+            <span class="clip-rec-dot"></span>
+            <span id="clip-indicator-text">Recording the last 10 s on this device only until a fall is confirmed.</span>
           </div>
         </div>
 
@@ -278,11 +309,21 @@
             <div id="settings-body" class="settings-body" style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 0.85rem;">
               <!-- Telegram Chat ID -->
               <div class="settings-field" style="margin-bottom: 0.9rem;">
-                <label for="setting-chat-id" style="display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.25rem;">
-                  Caregiver Telegram Chat ID
-                </label>
-                <input type="text" id="setting-chat-id" class="input-setting" placeholder="e.g. 5513741585" style="width: 100%; box-sizing: border-box; padding: 0.45rem 0.65rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-surface); color: var(--text-main); font-size: 0.85rem;" />
-                <span style="display: block; font-size: 0.72rem; color: var(--text-faint); margin-top: 0.25rem; line-height: 1.35;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem;">
+                  <label for="setting-chat-id" style="font-size: 0.82rem; font-weight: 600; margin: 0;">
+                    Caregiver Telegram Chat ID
+                  </label>
+                  <span id="chat-id-status-badge" style="display: none; font-size: 0.68rem; font-weight: 600; padding: 0.12rem 0.5rem; border-radius: 999px;"></span>
+                </div>
+                <div style="display: flex; gap: 0.4rem; align-items: stretch;">
+                  <input type="text" id="setting-chat-id" class="input-setting" placeholder="e.g. 5513741585" style="flex: 1; min-width: 0; box-sizing: border-box; padding: 0.45rem 0.65rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-surface); color: var(--text-main); font-size: 0.85rem;" />
+                  <button id="btn-verify-chat-id" type="button" class="btn btn-primary btn-sm" style="display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; padding: 0.45rem 0.85rem; font-size: 0.82rem; font-weight: 600; white-space: nowrap; border-radius: var(--radius-sm); cursor: pointer;" title="Verify Telegram bot token and send a verification test message to this chat ID">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    <span id="btn-verify-chat-text">Send</span>
+                  </button>
+                </div>
+                <div id="chat-id-feedback" style="display: none; font-size: 0.74rem; margin-top: 0.4rem; padding: 0.45rem 0.65rem; border-radius: var(--radius-sm); line-height: 1.4;"></div>
+                <span style="display: block; font-size: 0.72rem; color: var(--text-faint); margin-top: 0.3rem; line-height: 1.35;">
                   The caregiver must open the FallGuard bot in Telegram and press Start first.
                 </span>
               </div>
@@ -316,11 +357,37 @@
               </div>
 
               <!-- Siren Toggle in Settings -->
-              <div class="settings-field" style="margin-bottom: 1.1rem; display: flex; align-items: center; justify-content: space-between;">
+              <div class="settings-field" style="margin-bottom: 0.9rem; display: flex; align-items: center; justify-content: space-between;">
                 <label for="setting-siren-toggle" style="font-size: 0.82rem; font-weight: 600; cursor: pointer;">
                   Audio Siren on Alert
                 </label>
                 <input type="checkbox" id="setting-siren-toggle" checked style="cursor: pointer; width: 18px; height: 18px;" />
+              </div>
+
+              <!-- Incident Video Clip Toggle & Consent (Off by default) -->
+              <div class="settings-field" style="margin-bottom: 1.1rem; border-top: 1px dashed var(--border-color); padding-top: 0.85rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                  <label for="setting-clip-toggle" style="font-size: 0.82rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.35rem;">
+                    <span>Send video clip to the caregiver</span>
+                  </label>
+                  <input type="checkbox" id="setting-clip-toggle" style="cursor: pointer; width: 18px; height: 18px;" />
+                </div>
+
+                <!-- Mandatory Consent Agreement (Cannot be turned on without ticking this) -->
+                <div id="clip-consent-container" style="background: var(--bg-subtle); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.55rem 0.7rem; margin-top: 0.35rem; transition: border-color 0.2s ease;">
+                  <label style="display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.72rem; line-height: 1.4; color: var(--text-muted); cursor: pointer; margin: 0;">
+                    <input type="checkbox" id="setting-clip-consent" style="margin-top: 0.15rem; cursor: pointer; flex-shrink: 0;" />
+                    <span>I understand that when a fall is confirmed, a 20-second video of me (no audio) is sent to the caregiver's Telegram chat. The server deletes it right after sending.</span>
+                  </label>
+                </div>
+
+                <!-- Send Test Clip Action (Only when consented) -->
+                <div id="test-clip-action-row" style="margin-top: 0.55rem; display: none; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                  <button id="btn-test-clip" type="button" class="btn btn-outline btn-xs" style="padding: 0.35rem 0.65rem; font-size: 0.76rem; font-weight: 600;">
+                    📹 Send test clip
+                  </button>
+                  <span id="test-clip-status" style="font-size: 0.7rem; color: var(--text-faint); font-family: var(--font-mono);"></span>
+                </div>
               </div>
 
               <!-- Reset to Defaults Button -->

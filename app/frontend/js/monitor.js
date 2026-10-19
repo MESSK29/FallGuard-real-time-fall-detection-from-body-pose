@@ -86,12 +86,22 @@ let lastWsSendTime = 0;
 
 // Settings State
 const SETTINGS_KEY = "fallguard_settings";
+const CAMERA_PREF_KEY = "fallguard_camera_facing";
 let currentSettings = {
   chatId: "",
+  isChatVerified: false,
   sensitivity: 3,
   lyingDelay: 2.0,
-  sirenEnabled: true
+  sirenEnabled: true,
+  sendClip: false,
+  clipConsent: false
 };
+
+// Camera & Device State
+let currentFacingMode = "front"; // "front" or "back"
+let preferredBackDeviceId = null;
+let isSwitchingCamera = false;
+let wakeLock = null;
 
 // DOM References
 let videoEl = null;
@@ -99,6 +109,9 @@ let canvasEl = null;
 let canvasCtx = null;
 let btnStart = null;
 let btnStop = null;
+let btnSwitchCamera = null;
+let activeCameraLabel = null;
+let cameraSwitchWrapper = null;
 let btnToggleSiren = null;
 let sirenToggleLabel = null;
 let btnTestAlert = null;
@@ -111,6 +124,8 @@ let dismissToast = null;
 let dismissToastMessage = null;
 let backendErrorBanner = null;
 let backendErrorText = null;
+let httpsWarningBanner = null;
+let visibilityWarningBanner = null;
 
 let fpsBadge = null;
 let confidenceBadge = null;
@@ -126,11 +141,23 @@ let modelVariantTag = null;
 
 // Settings DOM Elements
 let settingChatId = null;
+let btnVerifyChatId = null;
+let btnVerifyChatText = null;
+let chatIdStatusBadge = null;
+let chatIdFeedback = null;
 let settingSensitivity = null;
 let settingSensitivityLabel = null;
 let settingLyingDelay = null;
 let settingLyingDelayLabel = null;
 let settingSirenToggle = null;
+let settingClipToggle = null;
+let settingClipConsent = null;
+let clipConsentContainer = null;
+let testClipActionRow = null;
+let btnTestClip = null;
+let testClipStatus = null;
+let clipRecordingIndicator = null;
+let clipIndicatorText = null;
 let btnResetSettings = null;
 let btnToggleSettings = null;
 let settingsHeader = null;
@@ -152,6 +179,27 @@ let sirenSweepInterval = null;
 let sirenIsPlaying = false;
 let sirenEnabled = true;
 
+// Incident Clip Recording & State Machine
+let mediaRecorder = null;
+let segmentIntervalTimer = null;
+let segmentStartTime = 0;
+let segmentRingBuffer = []; // stores at most 6 segments: { blob, start_ms, end_ms }
+let isRecordingSegments = false;
+let pageHideTimeout = null;
+let isTestingClip = false;
+
+let fallIncident = {
+  active: false,
+  T: 0,
+  preSegments: [],
+  postSegments: [],
+  alertId: null,
+  uploadStarted: false,
+  uploadComplete: false,
+  countdownInterval: null,
+  discardTimeout: null
+};
+
 // ============================================================================
 // Initialization & Event Binding
 // ============================================================================
@@ -159,11 +207,18 @@ let sirenEnabled = true;
 document.addEventListener("DOMContentLoaded", () => {
   initDOMElements();
   loadStoredSettings();
+  loadCameraPreference();
+  checkHttpsRequirement();
+  setupVisibilityAndWakeLockHandlers();
   applySettingsToInputs();
   bindEvents();
   updateModelInfoLabels();
   updateSoundIndicator();
+  updateCameraUI();
+  checkDeviceCount();
   initWebSocket();
+  // On page load, re-send the SAVED consent from localStorage once
+  syncClipConsentWithServer(Boolean(currentSettings.sendClip && currentSettings.clipConsent));
 });
 
 function getClientId() {
@@ -189,9 +244,15 @@ function loadStoredSettings() {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object") {
         if (typeof parsed.chatId === "string") currentSettings.chatId = parsed.chatId.trim();
+        if (parsed.isChatVerified !== undefined) currentSettings.isChatVerified = Boolean(parsed.isChatVerified);
         if (parsed.sensitivity !== undefined) currentSettings.sensitivity = parseInt(parsed.sensitivity, 10) || 3;
         if (parsed.lyingDelay !== undefined) currentSettings.lyingDelay = parseFloat(parsed.lyingDelay) || 2.0;
         if (parsed.sirenEnabled !== undefined) currentSettings.sirenEnabled = Boolean(parsed.sirenEnabled);
+        if (parsed.clipConsent !== undefined) currentSettings.clipConsent = Boolean(parsed.clipConsent);
+        if (parsed.sendClip !== undefined) currentSettings.sendClip = Boolean(parsed.sendClip);
+        if (!currentSettings.clipConsent) {
+          currentSettings.sendClip = false;
+        }
       }
     }
   } catch (e) {
@@ -213,8 +274,18 @@ function applySettingsToInputs() {
   if (settingSensitivity) settingSensitivity.value = currentSettings.sensitivity;
   if (settingLyingDelay) settingLyingDelay.value = currentSettings.lyingDelay;
   if (settingSirenToggle) settingSirenToggle.checked = currentSettings.sirenEnabled;
+  if (settingClipConsent) settingClipConsent.checked = Boolean(currentSettings.clipConsent);
+  if (settingClipToggle) settingClipToggle.checked = Boolean(currentSettings.sendClip && currentSettings.clipConsent);
+  if (currentSettings.chatId && currentSettings.isChatVerified && chatIdStatusBadge) {
+    chatIdStatusBadge.style.display = "inline-block";
+    chatIdStatusBadge.style.background = "rgba(16, 185, 129, 0.15)";
+    chatIdStatusBadge.style.color = "#10b981";
+    chatIdStatusBadge.style.border = "1px solid #10b981";
+    chatIdStatusBadge.textContent = "✓ Verified Key";
+  }
   updateSensitivityDisplay();
   updateLyingDelayDisplay();
+  updateClipUIState();
 }
 
 function updateSensitivityDisplay(serverThreshold) {
@@ -245,13 +316,59 @@ function sendSettingsOverWs() {
     type: "settings",
     telegram_chat_id: currentSettings.chatId ? currentSettings.chatId.trim() : "",
     sensitivity: currentSettings.sensitivity,
-    lying_seconds: currentSettings.lyingDelay
+    lying_seconds: currentSettings.lyingDelay,
+    clip_consent: Boolean(currentSettings.sendClip && currentSettings.clipConsent)
   };
   try {
     socket.send(JSON.stringify(payload));
     console.log("[FallGuard] Sent settings over WebSocket:", payload);
   } catch (err) {
     console.warn("[FallGuard] Failed to send settings over WebSocket:", err);
+  }
+}
+
+async function syncClipConsentWithServer(targetConsent) {
+  const clientId = getClientId();
+  try {
+    const resp = await fetch("/api/consent/clip", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Client-Id": clientId
+      },
+      body: JSON.stringify({
+        consent: Boolean(targetConsent)
+      })
+    });
+
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    const serverConsent = Boolean(data.consent);
+
+    // If server's stored value differs from the toggle, set the toggle to the server's value and show a warning
+    if (serverConsent !== Boolean(targetConsent)) {
+      console.warn("[FallGuard] Server consent differs from toggle:", serverConsent, "vs", targetConsent);
+      showToast("Warning: Server consent setting differs from device toggle.");
+    }
+
+    currentSettings.sendClip = serverConsent;
+    if (settingClipToggle) {
+      settingClipToggle.checked = Boolean(serverConsent && currentSettings.clipConsent);
+    }
+    saveCurrentSettings();
+    updateClipRecordingState();
+    updateClipUIState();
+    return serverConsent;
+  } catch (err) {
+    console.error("[FallGuard] Failed to sync clip consent with server:", err);
+    showToast("Warning: Failed to update video consent with server.");
+    if (settingClipToggle) {
+      settingClipToggle.checked = Boolean(currentSettings.sendClip && currentSettings.clipConsent);
+    }
+    return null;
   }
 }
 
@@ -264,6 +381,9 @@ function initDOMElements() {
 
   btnStart = document.getElementById("btn-start-monitor");
   btnStop = document.getElementById("btn-stop-monitor");
+  btnSwitchCamera = document.getElementById("btn-switch-camera");
+  activeCameraLabel = document.getElementById("active-camera-label");
+  cameraSwitchWrapper = document.getElementById("camera-switch-wrapper");
   btnToggleSiren = document.getElementById("btn-toggle-siren");
   sirenToggleLabel = document.getElementById("siren-toggle-label");
   btnTestAlert = document.getElementById("btn-test-alert");
@@ -277,6 +397,8 @@ function initDOMElements() {
   dismissToastMessage = document.getElementById("dismiss-toast-message");
   backendErrorBanner = document.getElementById("backend-error-banner");
   backendErrorText = document.getElementById("backend-error-text");
+  httpsWarningBanner = document.getElementById("https-warning-banner");
+  visibilityWarningBanner = document.getElementById("visibility-warning-banner");
 
   fpsBadge = document.getElementById("fps-badge");
   confidenceBadge = document.getElementById("confidence-badge");
@@ -293,11 +415,23 @@ function initDOMElements() {
   modelVariantTag = document.getElementById("model-variant-tag");
 
   settingChatId = document.getElementById("setting-chat-id");
+  btnVerifyChatId = document.getElementById("btn-verify-chat-id");
+  btnVerifyChatText = document.getElementById("btn-verify-chat-text");
+  chatIdStatusBadge = document.getElementById("chat-id-status-badge");
+  chatIdFeedback = document.getElementById("chat-id-feedback");
   settingSensitivity = document.getElementById("setting-sensitivity");
   settingSensitivityLabel = document.getElementById("setting-sensitivity-label");
   settingLyingDelay = document.getElementById("setting-lying-delay");
   settingLyingDelayLabel = document.getElementById("setting-lying-delay-label");
   settingSirenToggle = document.getElementById("setting-siren-toggle");
+  settingClipToggle = document.getElementById("setting-clip-toggle");
+  settingClipConsent = document.getElementById("setting-clip-consent");
+  clipConsentContainer = document.getElementById("clip-consent-container");
+  testClipActionRow = document.getElementById("test-clip-action-row");
+  btnTestClip = document.getElementById("btn-test-clip");
+  testClipStatus = document.getElementById("test-clip-status");
+  clipRecordingIndicator = document.getElementById("clip-recording-indicator");
+  clipIndicatorText = document.getElementById("clip-indicator-text");
   btnResetSettings = document.getElementById("btn-reset-settings");
   btnToggleSettings = document.getElementById("btn-toggle-settings");
   settingsHeader = document.getElementById("settings-header");
@@ -342,6 +476,9 @@ function bindEvents() {
   if (btnTestAlert) {
     btnTestAlert.addEventListener("click", () => triggerTestAlert());
   }
+  if (btnSwitchCamera) {
+    btnSwitchCamera.addEventListener("click", () => switchCamera());
+  }
 
   // Settings Card Event Listeners
   if (btnToggleSettings) {
@@ -354,9 +491,25 @@ function bindEvents() {
     settingsHeader.addEventListener("click", () => toggleSettingsPanel());
   }
 
+  if (btnVerifyChatId) {
+    btnVerifyChatId.addEventListener("click", () => verifyChatId());
+  }
+
   if (settingChatId) {
+    settingChatId.addEventListener("input", () => {
+      currentSettings.isChatVerified = false;
+      if (chatIdStatusBadge) chatIdStatusBadge.style.display = "none";
+      if (chatIdFeedback) chatIdFeedback.style.display = "none";
+    });
+    settingChatId.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        verifyChatId();
+      }
+    });
     settingChatId.addEventListener("change", () => {
       currentSettings.chatId = settingChatId.value.trim();
+      currentSettings.isChatVerified = false;
       saveCurrentSettings();
       sendSettingsOverWs();
     });
@@ -395,21 +548,500 @@ function bindEvents() {
     });
   }
 
+  if (settingClipToggle) {
+    settingClipToggle.addEventListener("change", async () => {
+      const isChecked = settingClipToggle.checked;
+      if (isChecked && !currentSettings.clipConsent) {
+        settingClipToggle.checked = false;
+        if (clipConsentContainer) {
+          clipConsentContainer.style.borderColor = "var(--alert, #ef4444)";
+          clipConsentContainer.style.boxShadow = "0 0 8px rgba(239, 68, 68, 0.4)";
+          setTimeout(() => {
+            if (clipConsentContainer) {
+              clipConsentContainer.style.borderColor = "var(--border-color)";
+              clipConsentContainer.style.boxShadow = "none";
+            }
+          }, 2000);
+        }
+        showToast("Please agree to the consent statement first to enable video clips.");
+        return;
+      }
+
+      // Send consent from one place only and wait for server response
+      const targetConsent = Boolean(isChecked && currentSettings.clipConsent);
+      await syncClipConsentWithServer(targetConsent);
+    });
+  }
+
+  if (settingClipConsent) {
+    settingClipConsent.addEventListener("change", async () => {
+      currentSettings.clipConsent = settingClipConsent.checked;
+      if (!currentSettings.clipConsent) {
+        currentSettings.sendClip = false;
+        if (settingClipToggle) settingClipToggle.checked = false;
+        await syncClipConsentWithServer(false);
+      } else {
+        saveCurrentSettings();
+      }
+    });
+  }
+
+  if (btnTestClip) {
+    btnTestClip.addEventListener("click", () => triggerTestClip());
+  }
+
   if (btnResetSettings) {
-    btnResetSettings.addEventListener("click", () => {
+    btnResetSettings.addEventListener("click", async () => {
       currentSettings = {
         chatId: "",
+        isChatVerified: false,
         sensitivity: 3,
         lyingDelay: 2.0,
-        sirenEnabled: true
+        sirenEnabled: true,
+        sendClip: false,
+        clipConsent: false
       };
       sirenEnabled = true;
       saveCurrentSettings();
       applySettingsToInputs();
       updateSoundIndicator();
       sendSettingsOverWs();
+      await syncClipConsentWithServer(false);
       showToast("Settings reset to defaults.");
     });
+  }
+}
+
+// ============================================================================
+// Incident Clip Recording Engine & MediaRecorder Ring Buffer
+// ============================================================================
+
+function updateClipUIState() {
+  const isConsented = Boolean(currentSettings.sendClip && currentSettings.clipConsent);
+  if (testClipActionRow) {
+    testClipActionRow.style.display = isConsented ? "flex" : "none";
+  }
+  if (clipRecordingIndicator) {
+    if (isMonitoring && isConsented) {
+      clipRecordingIndicator.style.display = "inline-flex";
+    } else {
+      clipRecordingIndicator.style.display = "none";
+    }
+  }
+}
+
+function updateClipRecordingState() {
+  const isConsented = Boolean(currentSettings.sendClip && currentSettings.clipConsent);
+  if (isMonitoring && isConsented && videoStream && videoStream.active) {
+    startSegmentRecorder();
+  } else {
+    stopSegmentRecorder();
+    clearRingBuffer();
+    resetIncidentCapture();
+  }
+  updateClipUIState();
+}
+
+function getSupportedMimeType() {
+  const candidates = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+    "video/mp4"
+  ];
+  if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) {
+    return "";
+  }
+  for (const t of candidates) {
+    if (MediaRecorder.isTypeSupported(t)) return t;
+  }
+  return "";
+}
+
+function startSegmentRecorder() {
+  if (!isMonitoring || !currentSettings.sendClip || !currentSettings.clipConsent) {
+    stopSegmentRecorder();
+    return;
+  }
+  if (!videoStream || !videoStream.active) return;
+  if (isRecordingSegments) return;
+
+  const mime = getSupportedMimeType();
+  if (!mime) {
+    console.warn("[FallGuard] No supported video MIME type found for MediaRecorder.");
+    return;
+  }
+
+  isRecordingSegments = true;
+  updateClipUIState();
+  recordNextTwoSecondSegment();
+}
+
+function recordNextTwoSecondSegment() {
+  if (!isRecordingSegments || !videoStream || !videoStream.active) {
+    isRecordingSegments = false;
+    updateClipUIState();
+    return;
+  }
+
+  const mime = getSupportedMimeType();
+  try {
+    mediaRecorder = new MediaRecorder(videoStream, {
+      mimeType: mime,
+      videoBitsPerSecond: 800000
+    });
+  } catch (err) {
+    console.error("[FallGuard] Failed to instantiate MediaRecorder:", err);
+    isRecordingSegments = false;
+    updateClipUIState();
+    return;
+  }
+
+  segmentStartTime = Date.now();
+  let chunks = [];
+
+  mediaRecorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) {
+      chunks.push(e.data);
+    }
+  };
+
+  mediaRecorder.onstop = () => {
+    if (chunks.length > 0) {
+      const segBlob = new Blob(chunks, { type: mime });
+      const segObj = {
+        blob: segBlob,
+        start_ms: segmentStartTime,
+        end_ms: Date.now()
+      };
+      handleNewSegment(segObj);
+    }
+    if (isRecordingSegments) {
+      recordNextTwoSecondSegment();
+    }
+  };
+
+  try {
+    mediaRecorder.start();
+    if (segmentIntervalTimer) clearTimeout(segmentIntervalTimer);
+    segmentIntervalTimer = setTimeout(() => {
+      if (mediaRecorder && mediaRecorder.state === "recording") {
+        try {
+          mediaRecorder.stop();
+        } catch (e) {}
+      }
+    }, 2000);
+  } catch (err) {
+    console.warn("[FallGuard] Error starting MediaRecorder segment:", err);
+    isRecordingSegments = false;
+  }
+}
+
+function stopSegmentRecorder() {
+  isRecordingSegments = false;
+  if (segmentIntervalTimer) {
+    clearTimeout(segmentIntervalTimer);
+    segmentIntervalTimer = null;
+  }
+  if (mediaRecorder) {
+    try {
+      if (mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+      }
+    } catch (e) {}
+    mediaRecorder = null;
+  }
+}
+
+function clearRingBuffer() {
+  segmentRingBuffer = [];
+}
+
+function handleNewSegment(segObj) {
+  // Maintain ring buffer of the 6 most recent 2-second segments (12s total) in volatile memory
+  segmentRingBuffer.push(segObj);
+  if (segmentRingBuffer.length > 6) {
+    segmentRingBuffer.shift();
+  }
+
+  // If capturing post-fall segments for an active incident:
+  if (fallIncident.active && !fallIncident.uploadStarted) {
+    if (segObj.end_ms <= fallIncident.T + 12000 || fallIncident.postSegments.length < 5) {
+      fallIncident.postSegments.push(segObj);
+    }
+    checkIncidentUploadReadiness();
+  }
+}
+
+function triggerPossibleFallIncident(existingAlertId) {
+  if (!currentSettings.sendClip || !currentSettings.clipConsent) return;
+  if (fallIncident.active) return;
+
+  const now = Date.now();
+  fallIncident.active = true;
+  fallIncident.T = now;
+  // Freeze shallow copy of buffered pre-fall segments
+  fallIncident.preSegments = [...segmentRingBuffer];
+  fallIncident.postSegments = [];
+  fallIncident.alertId = existingAlertId || null;
+  fallIncident.uploadStarted = false;
+  fallIncident.uploadComplete = false;
+
+  console.log(`[FallGuard] Possible fall onset T=${now}. Pre-fall segments frozen: ${fallIncident.preSegments.length}`);
+
+  if (fallIncident.countdownInterval) clearInterval(fallIncident.countdownInterval);
+  fallIncident.countdownInterval = setInterval(updateIncidentCountdownUI, 250);
+
+  // Requirement: Give up and discard after T + 40 s
+  if (fallIncident.discardTimeout) clearTimeout(fallIncident.discardTimeout);
+  fallIncident.discardTimeout = setTimeout(() => {
+    if (fallIncident.active && !fallIncident.uploadComplete) {
+      console.log("[FallGuard] Incident clip upload expired after T + 40s. Discarding.");
+      resetIncidentCapture("Expired after 40s timeout");
+    }
+  }, 40000);
+}
+
+function updateIncidentCountdownUI() {
+  if (!fallIncident.active) return;
+  if (fallIncident.uploadStarted) return;
+
+  const now = Date.now();
+  const targetTime = fallIncident.T + 10000;
+  const remainingSec = Math.max(0, Math.ceil((targetTime - now) / 1000));
+
+  if (clipIndicatorText) {
+    if (remainingSec > 0) {
+      clipIndicatorText.textContent = `Clip will be sent in ${remainingSec} s`;
+    } else {
+      clipIndicatorText.textContent = fallIncident.alertId
+        ? "Uploading clip..."
+        : "Waiting for alert confirmation...";
+    }
+  }
+}
+
+function checkIncidentUploadReadiness() {
+  if (!fallIncident.active || fallIncident.uploadStarted) return;
+
+  const now = Date.now();
+  const timeElapsed = (now >= fallIncident.T + 10000);
+  const hasAlert = Boolean(fallIncident.alertId);
+
+  // Upload when BOTH are true: at least T + 10 s has passed AND server reported alert
+  if (timeElapsed && hasAlert) {
+    fallIncident.uploadStarted = true;
+    if (fallIncident.countdownInterval) {
+      clearInterval(fallIncident.countdownInterval);
+      fallIncident.countdownInterval = null;
+    }
+
+    if (clipIndicatorText) {
+      clipIndicatorText.textContent = "Uploading clip...";
+    }
+
+    const segmentsToUpload = [...fallIncident.preSegments, ...fallIncident.postSegments];
+    const alertId = fallIncident.alertId;
+    const T_val = fallIncident.T;
+
+    uploadClipPayload(alertId, T_val, segmentsToUpload, false);
+  }
+}
+
+async function uploadClipPayload(alertId, T_val, segmentsList, isTestClip = false) {
+  if (!segmentsList || segmentsList.length === 0) {
+    const reason = "No video footage available in buffer";
+    handleClipUploadFailure(reason, isTestClip);
+    return;
+  }
+
+  try {
+    const formData = new FormData();
+    const metaSegments = segmentsList.map((s) => ({ start_ms: s.start_ms }));
+    const metadataObj = {
+      T: T_val,
+      segments: metaSegments
+    };
+    formData.append("metadata", JSON.stringify(metadataObj));
+
+    segmentsList.forEach((seg, idx) => {
+      const type = (seg.blob && seg.blob.type) || "video/webm";
+      const ext = type.includes("mp4") ? "mp4" : "webm";
+      formData.append("segments", seg.blob, `segment_${String(idx).padStart(3, "0")}.${ext}`);
+    });
+
+    const clientId = getClientId();
+    const resp = await fetch(`/alerts/${alertId}/clip`, {
+      method: "POST",
+      headers: {
+        "X-Client-Id": clientId
+      },
+      body: formData
+    });
+
+    const data = await resp.json().catch(() => ({}));
+
+    if (resp.ok) {
+      handleClipUploadSuccess(data, isTestClip);
+    } else {
+      const errMsg = data.detail || `Upload failed (HTTP ${resp.status})`;
+      handleClipUploadFailure(errMsg, isTestClip);
+    }
+  } catch (err) {
+    console.error("[FallGuard] Clip upload error:", err);
+    handleClipUploadFailure(err.message || "Network error", isTestClip);
+  }
+}
+
+function handleClipUploadSuccess(data, isTestClip = false) {
+  if (isTestClip) {
+    if (testClipStatus) {
+      testClipStatus.textContent = "Clip sent!";
+      testClipStatus.style.color = "var(--safe, #10b981)";
+    }
+    showToast("Test clip sent successfully to caregiver!");
+  } else {
+    fallIncident.uploadComplete = true;
+    if (clipIndicatorText) {
+      clipIndicatorText.textContent = "Clip sent";
+    }
+    showToast("Incident video clip sent to caregiver's Telegram chat.");
+    setTimeout(() => {
+      resetIncidentCapture();
+    }, 6000);
+  }
+}
+
+function handleClipUploadFailure(reason, isTestClip = false) {
+  if (isTestClip) {
+    if (testClipStatus) {
+      testClipStatus.textContent = `Failed: ${reason}`;
+      testClipStatus.style.color = "var(--alert, #ef4444)";
+    }
+    showToast(`Test clip failed: ${reason}`);
+  } else {
+    if (clipIndicatorText) {
+      clipIndicatorText.textContent = `Clip failed: ${reason}`;
+    }
+    showToast(`Video clip upload failed: ${reason}`);
+    setTimeout(() => {
+      resetIncidentCapture();
+    }, 8000);
+  }
+}
+
+function resetIncidentCapture(reason) {
+  if (fallIncident.countdownInterval) {
+    clearInterval(fallIncident.countdownInterval);
+    fallIncident.countdownInterval = null;
+  }
+  if (fallIncident.discardTimeout) {
+    clearTimeout(fallIncident.discardTimeout);
+    fallIncident.discardTimeout = null;
+  }
+  fallIncident.active = false;
+  fallIncident.T = 0;
+  fallIncident.preSegments = [];
+  fallIncident.postSegments = [];
+  fallIncident.alertId = null;
+  fallIncident.uploadStarted = false;
+  fallIncident.uploadComplete = false;
+
+  if (clipIndicatorText) {
+    clipIndicatorText.textContent = "Recording the last 10 s on this device only until a fall is confirmed.";
+  }
+}
+
+async function triggerTestClip() {
+  if (isTestingClip) return;
+  if (!currentSettings.sendClip || !currentSettings.clipConsent) {
+    showToast("Please enable and consent to video clips first.");
+    return;
+  }
+
+  if (!isMonitoring || !videoStream || !videoStream.active) {
+    showToast("Please start monitoring first so camera video is available.");
+    return;
+  }
+
+  isTestingClip = true;
+  if (btnTestClip) btnTestClip.disabled = true;
+  if (testClipStatus) {
+    testClipStatus.style.color = "var(--text-faint)";
+    testClipStatus.textContent = "Authorizing test...";
+  }
+
+  try {
+    const clientId = getClientId();
+    const payload = {
+      is_test_clip: true
+    };
+    if (currentSettings.chatId && currentSettings.chatId.trim()) {
+      payload.telegram_chat_id = currentSettings.chatId.trim();
+    }
+
+    const resp = await fetch("/test-alert", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Client-Id": clientId
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (resp.status === 429) {
+      const err = await resp.json().catch(() => ({}));
+      const msg = err.detail || "Rate limit: at most 2 test clips per hour.";
+      if (testClipStatus) {
+        testClipStatus.textContent = msg;
+        testClipStatus.style.color = "var(--alert, #ef4444)";
+      }
+      showToast(msg);
+      return;
+    }
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+
+    const testAlertData = await resp.json();
+    const testAlertId = testAlertData.alert ? testAlertData.alert.id : null;
+    if (!testAlertId) throw new Error("Server did not return a test alert ID.");
+
+    // Start 10 second countdown while recording test segments (no siren or escalation)
+    let countdownSec = 10;
+    const testSegments = [...segmentRingBuffer];
+    const testStartT = Date.now();
+
+    const testCountdownInterval = setInterval(() => {
+      countdownSec--;
+      if (testClipStatus) {
+        testClipStatus.textContent = `Recording test clip (${countdownSec}s)...`;
+      }
+      if (countdownSec <= 0) {
+        clearInterval(testCountdownInterval);
+        if (testClipStatus) testClipStatus.textContent = "Uploading test clip...";
+        const allSegments = segmentRingBuffer.length > 0 ? [...segmentRingBuffer] : testSegments;
+        uploadClipPayload(testAlertId, testStartT, allSegments, true);
+      }
+    }, 1000);
+
+    if (testClipStatus) {
+      testClipStatus.textContent = `Recording test clip (${countdownSec}s)...`;
+    }
+  } catch (err) {
+    console.error("[FallGuard] Test clip error:", err);
+    if (testClipStatus) {
+      testClipStatus.textContent = `Failed: ${err.message}`;
+      testClipStatus.style.color = "var(--alert, #ef4444)";
+    }
+    showToast(`Test clip failed: ${err.message}`);
+  } finally {
+    setTimeout(() => {
+      isTestingClip = false;
+      if (btnTestClip) btnTestClip.disabled = false;
+    }, 12000);
   }
 }
 
@@ -472,6 +1104,8 @@ function initWebSocket() {
         reconnectTimer = null;
       }
       sendSettingsOverWs();
+      // On every WebSocket reconnect, re-send the SAVED consent from localStorage once
+      syncClipConsentWithServer(Boolean(currentSettings.sendClip && currentSettings.clipConsent));
     };
 
     socket.onmessage = (event) => {
@@ -482,11 +1116,17 @@ function initWebSocket() {
       console.warn("[FallGuard] WebSocket disconnected.");
       updateConnectionBadge(false);
       scheduleReconnect();
+      if (isMonitoring) {
+        reportErrorToTelegram("WebSocket disconnected during active monitoring. Attempting reconnect...", "WebSocket");
+      }
     };
 
     socket.onerror = (err) => {
       console.warn("[FallGuard] WebSocket connection error:", err);
       updateConnectionBadge(false);
+      if (isMonitoring) {
+        reportErrorToTelegram("WebSocket communication error encountered.", "WebSocket");
+      }
       try {
         socket.close();
       } catch (e) {
@@ -550,21 +1190,41 @@ function handleServerResponse(rawText) {
     const probPercent = Math.round(prob * 100);
     const lyingProgress = data.lying_progress !== undefined ? Number(data.lying_progress) : 0.0;
 
-    if (data.alert_id && !currentActiveAlertId) {
-      currentActiveAlertId = data.alert_id;
+    if (data.alert_id) {
+      if (!currentActiveAlertId) {
+        currentActiveAlertId = data.alert_id;
+      }
+      if (fallIncident.active && !fallIncident.alertId) {
+        fallIncident.alertId = data.alert_id;
+        checkIncidentUploadReadiness();
+      }
     }
 
     if (status === "alert") {
       updateStatusBadge("alert", `ALERT (${probPercent}%)`);
       updateLyingProgressBar(1.0);
       showFallAlertBanner(data.alert_id, data.local_time);
+      if (data.alert_id && fallIncident.active) {
+        fallIncident.alertId = data.alert_id;
+        checkIncidentUploadReadiness();
+      }
     } else if (status === "possible_fall" || status === "warning" || status.includes("fall")) {
       const progPct = Math.round(lyingProgress * 100);
       updateStatusBadge("warning", `Possible Fall (${probPercent}%)`);
       updateLyingProgressBar(lyingProgress);
+      // Incident clip: first moment server status becomes possible_fall
+      if (currentSettings.sendClip && currentSettings.clipConsent && !fallIncident.active) {
+        triggerPossibleFallIncident(data.alert_id || null);
+      }
     } else {
       updateStatusBadge("normal", "Normal");
       updateLyingProgressBar(0.0);
+      // If a possible fall was active without an alert and status returned to normal, discard
+      if (fallIncident.active && !fallIncident.alertId && !fallIncident.uploadStarted) {
+        if (Date.now() > fallIncident.T + 12000) {
+          resetIncidentCapture("Possible fall timed out with no alert");
+        }
+      }
     }
   } catch (err) {
     console.warn("[FallGuard] Error processing server WebSocket response:", err);
@@ -796,6 +1456,7 @@ function showFallAlertBanner(alertId, localTimeStr) {
  */
 async function dismissCurrentAlert() {
   stopSiren();
+  resetIncidentCapture("Alert dismissed by user before upload");
   const banner = document.getElementById("fall-alert-banner");
   if (banner) {
     banner.style.display = "none";
@@ -901,6 +1562,187 @@ function showBackendError(message) {
       banner.style.display = "none";
     }, 6000);
   }
+  reportErrorToTelegram(message, "Backend");
+}
+
+function escapeHtml(text) {
+  if (!text) return "";
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function maskChatId(chatId) {
+  if (!chatId) return "";
+  const str = String(chatId).trim();
+  if (str.length <= 4) return `...${str}`;
+  return `...${str.slice(-4)}`;
+}
+
+/**
+ * Performs real internal checks with Telegram Bot API and sends a verification test message.
+ * Never blindly displays valid key without internal confirmation from Telegram API.
+ */
+async function verifyChatId() {
+  if (!settingChatId) return;
+  const rawId = settingChatId.value.trim();
+
+  if (!rawId) {
+    if (chatIdStatusBadge) {
+      chatIdStatusBadge.style.display = "inline-block";
+      chatIdStatusBadge.style.background = "rgba(239, 68, 68, 0.15)";
+      chatIdStatusBadge.style.color = "#ef4444";
+      chatIdStatusBadge.style.border = "1px solid #ef4444";
+      chatIdStatusBadge.textContent = "✗ Missing";
+    }
+    if (chatIdFeedback) {
+      chatIdFeedback.style.display = "block";
+      chatIdFeedback.style.background = "rgba(239, 68, 68, 0.08)";
+      chatIdFeedback.style.border = "1px solid rgba(239, 68, 68, 0.3)";
+      chatIdFeedback.style.color = "var(--text-main)";
+      chatIdFeedback.innerHTML = "<strong>Please enter a Telegram Chat ID first.</strong>";
+    }
+    settingChatId.focus();
+    return;
+  }
+
+  // Visual loading state
+  if (btnVerifyChatId) btnVerifyChatId.disabled = true;
+  if (btnVerifyChatText) btnVerifyChatText.textContent = "Verifying...";
+  if (chatIdStatusBadge) {
+    chatIdStatusBadge.style.display = "inline-block";
+    chatIdStatusBadge.style.background = "rgba(245, 158, 11, 0.15)";
+    chatIdStatusBadge.style.color = "#d97706";
+    chatIdStatusBadge.style.border = "1px solid rgba(245, 158, 11, 0.4)";
+    chatIdStatusBadge.textContent = "Checking...";
+  }
+  if (chatIdFeedback) {
+    chatIdFeedback.style.display = "block";
+    chatIdFeedback.style.background = "rgba(245, 158, 11, 0.08)";
+    chatIdFeedback.style.border = "1px solid rgba(245, 158, 11, 0.25)";
+    chatIdFeedback.style.color = "var(--text-main)";
+    chatIdFeedback.innerHTML = "<span>⏳ Performing internal checks with Telegram Bot API...</span>";
+  }
+
+  try {
+    const clientId = getClientId();
+    const resp = await fetch("/api/telegram/verify", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Client-Id": clientId,
+      },
+      body: JSON.stringify({ chat_id: rawId }),
+    });
+
+    const data = await resp.json().catch(() => ({}));
+
+    if (resp.ok && data.valid) {
+      // Internal checks passed!
+      const botHandle = data.bot_username ? `@${data.bot_username}` : (data.bot_name || "FallGuard Bot");
+      const masked = data.masked_chat_id || maskChatId(rawId);
+
+      if (chatIdStatusBadge) {
+        chatIdStatusBadge.style.display = "inline-block";
+        chatIdStatusBadge.style.background = "rgba(16, 185, 129, 0.15)";
+        chatIdStatusBadge.style.color = "#10b981";
+        chatIdStatusBadge.style.border = "1px solid #10b981";
+        chatIdStatusBadge.textContent = "✓ Valid Key";
+      }
+
+      if (chatIdFeedback) {
+        chatIdFeedback.style.display = "block";
+        chatIdFeedback.style.background = "rgba(16, 185, 129, 0.08)";
+        chatIdFeedback.style.border = "1px solid rgba(16, 185, 129, 0.3)";
+        chatIdFeedback.style.color = "var(--text-main)";
+        chatIdFeedback.innerHTML = `
+          <div style="font-weight: 600; color: #10b981; margin-bottom: 0.2rem;">✓ Token & Chat ID Verified</div>
+          <div>Bot: <strong>${escapeHtml(botHandle)}</strong> (${escapeHtml(data.bot_name || "FallGuard")})</div>
+          <div>Verification message sent to chat <code>${escapeHtml(masked)}</code>.</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem;">
+            Emergency fall alerts and system errors will route to this chat ID only.
+          </div>
+        `;
+      }
+
+      currentSettings.chatId = rawId;
+      currentSettings.isChatVerified = true;
+      saveCurrentSettings();
+      sendSettingsOverWs();
+      showToast(`Telegram verified! Test message sent to ${masked}.`);
+    } else {
+      // Internal checks failed!
+      const errMsg = data.error || (data.detail || `Verification failed with HTTP ${resp.status}`);
+      currentSettings.isChatVerified = false;
+      saveCurrentSettings();
+
+      if (chatIdStatusBadge) {
+        chatIdStatusBadge.style.display = "inline-block";
+        chatIdStatusBadge.style.background = "rgba(239, 68, 68, 0.15)";
+        chatIdStatusBadge.style.color = "#ef4444";
+        chatIdStatusBadge.style.border = "1px solid #ef4444";
+        chatIdStatusBadge.textContent = "✗ Invalid";
+      }
+
+      if (chatIdFeedback) {
+        chatIdFeedback.style.display = "block";
+        chatIdFeedback.style.background = "rgba(239, 68, 68, 0.08)";
+        chatIdFeedback.style.border = "1px solid rgba(239, 68, 68, 0.3)";
+        chatIdFeedback.style.color = "var(--text-main)";
+        chatIdFeedback.innerHTML = `
+          <div style="font-weight: 600; color: #ef4444; margin-bottom: 0.2rem;">✗ Internal Check Failed</div>
+          <div>${escapeHtml(errMsg)}</div>
+        `;
+      }
+
+      showToast(`Telegram check failed: ${errMsg}`);
+    }
+  } catch (err) {
+    console.error("[FallGuard] verifyChatId error:", err);
+    if (chatIdStatusBadge) {
+      chatIdStatusBadge.style.display = "inline-block";
+      chatIdStatusBadge.style.background = "rgba(239, 68, 68, 0.15)";
+      chatIdStatusBadge.style.color = "#ef4444";
+      chatIdStatusBadge.style.border = "1px solid #ef4444";
+      chatIdStatusBadge.textContent = "✗ Error";
+    }
+    if (chatIdFeedback) {
+      chatIdFeedback.style.display = "block";
+      chatIdFeedback.style.background = "rgba(239, 68, 68, 0.08)";
+      chatIdFeedback.style.border = "1px solid rgba(239, 68, 68, 0.3)";
+      chatIdFeedback.style.color = "var(--text-main)";
+      chatIdFeedback.innerHTML = `<strong>Network/Server Error:</strong> ${escapeHtml(err.message)}`;
+    }
+  } finally {
+    if (btnVerifyChatId) btnVerifyChatId.disabled = false;
+    if (btnVerifyChatText) btnVerifyChatText.textContent = "Send";
+  }
+}
+
+/**
+ * Forwards system and monitoring errors directly to the verified Telegram chat ID.
+ */
+async function reportErrorToTelegram(errorMessage, errorType = "System") {
+  const chatId = currentSettings.chatId ? currentSettings.chatId.trim() : "";
+  if (!chatId) return;
+
+  try {
+    const clientId = getClientId();
+    await fetch("/api/telegram/notify-error", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Client-Id": clientId,
+      },
+      body: JSON.stringify({
+        error_message: errorMessage,
+        error_type: errorType,
+        chat_id: chatId,
+      }),
+    });
+  } catch (err) {
+    console.debug("[FallGuard] Failed to forward error to Telegram:", err);
+  }
 }
 
 // ============================================================================
@@ -957,8 +1799,237 @@ async function loadPoseModel() {
 }
 
 // ============================================================================
+// Camera Preference, Mirroring & HTTPS / Wake Lock Helpers
+// ============================================================================
+
+function loadCameraPreference() {
+  try {
+    const saved = localStorage.getItem(CAMERA_PREF_KEY);
+    if (saved === "back" || saved === "front") {
+      currentFacingMode = saved;
+    } else {
+      currentFacingMode = "front";
+    }
+  } catch (e) {
+    currentFacingMode = "front";
+  }
+}
+
+function saveCameraPreference(facing) {
+  currentFacingMode = facing;
+  try {
+    localStorage.setItem(CAMERA_PREF_KEY, facing);
+  } catch (e) {
+    console.warn("[FallGuard] Could not save camera preference:", e);
+  }
+  updateCameraUI();
+}
+
+function updateCameraUI() {
+  if (activeCameraLabel) {
+    activeCameraLabel.textContent = currentFacingMode === "back" ? "Back camera" : "Front camera";
+  }
+  syncMirroringStyles();
+}
+
+function syncMirroringStyles() {
+  // Mirror preview & overlay skeleton ONLY for front camera (scaleX(-1)), unmirrored for back camera
+  const isFront = currentFacingMode === "front";
+  if (videoEl) {
+    if (isFront) {
+      videoEl.classList.add("mirrored");
+    } else {
+      videoEl.classList.remove("mirrored");
+    }
+  }
+  if (canvasEl) {
+    if (isFront) {
+      canvasEl.classList.add("mirrored");
+    } else {
+      canvasEl.classList.remove("mirrored");
+    }
+  }
+}
+
+function checkHttpsRequirement() {
+  const isLocalhost =
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1" ||
+    window.location.hostname === "[::1]";
+
+  if (window.location.protocol !== "https:" && !isLocalhost) {
+    if (httpsWarningBanner) {
+      httpsWarningBanner.style.display = "flex";
+    }
+  } else {
+    if (httpsWarningBanner) {
+      httpsWarningBanner.style.display = "none";
+    }
+  }
+}
+
+async function checkDeviceCount() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+    return;
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoInputs = devices.filter((d) => d.kind === "videoinput");
+
+    // If there is only 1 camera (e.g. laptop webcam), hide or disable the button
+    if (videoInputs.length <= 1) {
+      if (btnSwitchCamera) {
+        btnSwitchCamera.disabled = true;
+        btnSwitchCamera.style.display = "none";
+      }
+      if (cameraSwitchWrapper) {
+        // Keep activeCameraLabel or hide wrapper if preferred; hiding the button satisfies requirement
+      }
+    } else {
+      if (btnSwitchCamera) {
+        btnSwitchCamera.disabled = false;
+        btnSwitchCamera.style.display = "inline-flex";
+      }
+    }
+
+    // Identify preferred back device if available
+    inspectBackCameras(videoInputs);
+  } catch (err) {
+    console.debug("[FallGuard] Device enumeration notice:", err);
+  }
+}
+
+function inspectBackCameras(videoInputs) {
+  if (!videoInputs || videoInputs.length === 0) return;
+
+  const backDevices = videoInputs.filter((d) => {
+    const lbl = (d.label || "").toLowerCase();
+    return lbl.includes("back") || lbl.includes("rear") || lbl.includes("environment");
+  });
+
+  if (backDevices.length > 0) {
+    // Prefer main back camera: first one without "wide" or "tele" in label, otherwise the first back device
+    const mainBack =
+      backDevices.find((d) => {
+        const lbl = (d.label || "").toLowerCase();
+        return !lbl.includes("wide") && !lbl.includes("tele") && !lbl.includes("ultra");
+      }) || backDevices[0];
+
+    if (mainBack && mainBack.deviceId) {
+      preferredBackDeviceId = mainBack.deviceId;
+    }
+  }
+}
+
+// Phone Wake Lock & Page Visibility
+async function requestScreenWakeLock() {
+  if (!("wakeLock" in navigator)) return;
+  try {
+    if (!wakeLock) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => {
+        wakeLock = null;
+      });
+      console.log("[FallGuard] Screen wake lock active.");
+    }
+  } catch (err) {
+    // Fail silently if unsupported or denied
+    console.debug("[FallGuard] Wake lock request error (silently handled):", err);
+  }
+}
+
+async function releaseScreenWakeLock() {
+  if (wakeLock) {
+    try {
+      await wakeLock.release();
+    } catch (e) {}
+    wakeLock = null;
+  }
+}
+
+function setupVisibilityAndWakeLockHandlers() {
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState === "hidden") {
+      if (isMonitoring && visibilityWarningBanner) {
+        visibilityWarningBanner.style.display = "flex";
+      }
+      // Requirement: clear buffer and stop recording on page hide for more than 30 s
+      if (pageHideTimeout) clearTimeout(pageHideTimeout);
+      pageHideTimeout = setTimeout(() => {
+        console.log("[FallGuard] Page hidden > 30s: stopping recorder and clearing buffer.");
+        stopSegmentRecorder();
+        clearRingBuffer();
+        resetIncidentCapture("Page hidden > 30s");
+      }, 30000);
+    } else if (document.visibilityState === "visible") {
+      if (pageHideTimeout) {
+        clearTimeout(pageHideTimeout);
+        pageHideTimeout = null;
+      }
+      if (visibilityWarningBanner) {
+        visibilityWarningBanner.style.display = "none";
+      }
+      if (isMonitoring) {
+        await requestScreenWakeLock();
+        if (currentSettings.sendClip && currentSettings.clipConsent && !isRecordingSegments) {
+          startSegmentRecorder();
+        }
+      }
+    }
+  });
+}
+
+// ============================================================================
 // Camera & Monitoring Control
 // ============================================================================
+
+async function acquireMediaStream(facing) {
+  const targetMode = facing === "back" ? "environment" : "user";
+
+  // Build constraints: Front = facingMode "user", back = facingMode "environment", 640x480 ideal @ 30fps
+  // Try { facingMode: { exact: ... } } first, retry with { ideal: ... } on OverconstrainedError
+  // If we have a remembered preferredBackDeviceId for back camera, include it as ideal
+  let videoConstraintExact = {
+    width: { ideal: 640 },
+    height: { ideal: 480 },
+    frameRate: { ideal: 30 },
+    facingMode: { exact: targetMode }
+  };
+
+  let videoConstraintIdeal = {
+    width: { ideal: 640 },
+    height: { ideal: 480 },
+    frameRate: { ideal: 30 },
+    facingMode: { ideal: targetMode }
+  };
+
+  if (facing === "back" && preferredBackDeviceId) {
+    videoConstraintIdeal.deviceId = { ideal: preferredBackDeviceId };
+  }
+
+  let stream = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: videoConstraintExact,
+      audio: false
+    });
+  } catch (err) {
+    if (err.name === "OverconstrainedError" || err.name === "ConstraintNotSatisfiedError") {
+      console.warn(`[FallGuard] Exact facingMode (${targetMode}) overconstrained. Retrying with ideal...`);
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: videoConstraintIdeal,
+        audio: false
+      });
+    } else {
+      throw err;
+    }
+  }
+
+  // After permission is granted, enumerate devices to count video inputs and inspect back cameras
+  checkDeviceCount();
+
+  return stream;
+}
 
 async function startMonitoring() {
   unlockAudioContext();
@@ -966,17 +2037,11 @@ async function startMonitoring() {
 
   try {
     btnStart.disabled = true;
-    showLoader(true, "Requesting webcam stream (640x480 @ 30fps)...");
+    showLoader(true, `Requesting ${currentFacingMode === "back" ? "back" : "front"} camera (640x480 @ 30fps)...`);
 
-    videoStream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        width: { ideal: 640 },
-        height: { ideal: 480 },
-        frameRate: { ideal: 30 },
-        facingMode: "user"
-      },
-      audio: false
-    });
+    syncMirroringStyles();
+
+    videoStream = await acquireMediaStream(currentFacingMode);
 
     videoEl.srcObject = videoStream;
     await new Promise((resolve) => {
@@ -1007,14 +2072,159 @@ async function startMonitoring() {
     prevHipY = null;
     prevFrameTime = null;
 
+    await requestScreenWakeLock();
+    updateClipRecordingState();
+
     requestAnimationFrame(detectionLoop);
   } catch (err) {
     console.error("[FallGuard] Camera start failed:", err);
     showLoader(false);
     btnStart.disabled = false;
     btnStop.disabled = true;
-    handleCameraError(err);
+    handleCameraError(err, currentFacingMode);
   }
+}
+
+async function switchCamera() {
+  if (isSwitchingCamera) return;
+  isSwitchingCamera = true;
+
+  if (btnSwitchCamera) {
+    btnSwitchCamera.disabled = true;
+  }
+
+  const previousFacing = currentFacingMode;
+  const newFacing = previousFacing === "front" ? "back" : "front";
+
+  // If monitoring is NOT running, just change preference and UI
+  if (!isMonitoring) {
+    saveCameraPreference(newFacing);
+    isSwitchingCamera = false;
+    if (btnSwitchCamera) btnSwitchCamera.disabled = false;
+    return;
+  }
+
+  // Monitoring IS running: switch safely
+  try {
+    // Clear buffer, stop recorder, and reset incident before camera switch
+    stopSegmentRecorder();
+    clearRingBuffer();
+    resetIncidentCapture();
+
+    // 1. Pause detection loop
+    if (animationFrameId) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+
+    showLoader(true, `Switching to ${newFacing === "back" ? "back" : "front"} camera...`);
+
+    // 2. Try acquiring new stream first before destroying old stream
+    const newStream = await acquireMediaStream(newFacing);
+
+    // 3. Stop ALL tracks of old stream
+    if (videoStream) {
+      videoStream.getTracks().forEach((track) => track.stop());
+      videoStream = null;
+    }
+
+    // 4. Update preference & mirroring
+    saveCameraPreference(newFacing);
+    videoStream = newStream;
+    videoEl.srcObject = newStream;
+
+    // 5. Wait for loadedmetadata
+    await new Promise((resolve) => {
+      videoEl.onloadedmetadata = () => {
+        videoEl.play();
+        resolve();
+      };
+    });
+
+    // 6. Resize overlay canvas to video dimensions
+    syncCanvasDimensions();
+
+    // 7. Reset detection state:
+    // Close & reopen WebSocket to guarantee backend detector buffer is fresh
+    resetWebSocketConnection();
+
+    // Clear last smoothed skeleton & pending possible-fall telemetry in UI
+    rawLandmarks = null;
+    smoothedLandmarks = null;
+    lostFramesCount = 0;
+    prevHipY = null;
+    prevFrameTime = null;
+    resetTelemetryReadouts();
+
+    // Reset pending possible fall status badge (NEVER raise or clear an active alert)
+    if (statusBadge && !statusBadge.classList.contains("alert")) {
+      updateStatusBadge("normal");
+      updateLyingProgressBar(0.0);
+    }
+
+    showLoader(false);
+    showToast(`Switched to ${newFacing === "back" ? "back" : "front"} camera.`);
+
+    // Restart segment recording with the new stream
+    updateClipRecordingState();
+
+    // 8. Resume animation frame loop safely (single loop)
+    lastVideoTime = -1;
+    requestAnimationFrame(detectionLoop);
+  } catch (err) {
+    console.error("[FallGuard] Camera switch failed:", err);
+    showLoader(false);
+
+    // If the switch fails, go back to previous camera automatically and tell user
+    saveCameraPreference(previousFacing);
+    showToast(`Camera switch failed: ${err.message || err.name}. Reverting to ${previousFacing} camera.`);
+
+    try {
+      // Re-acquire previous camera stream
+      const fallbackStream = await acquireMediaStream(previousFacing);
+      if (videoStream) {
+        videoStream.getTracks().forEach((track) => track.stop());
+      }
+      videoStream = fallbackStream;
+      videoEl.srcObject = fallbackStream;
+      await new Promise((resolve) => {
+        videoEl.onloadedmetadata = () => {
+          videoEl.play();
+          resolve();
+        };
+      });
+      syncCanvasDimensions();
+      resetWebSocketConnection();
+      lastVideoTime = -1;
+      updateClipRecordingState();
+      requestAnimationFrame(detectionLoop);
+    } catch (revertErr) {
+      console.error("[FallGuard] Fallback to previous camera also failed:", revertErr);
+      stopMonitoring();
+      handleCameraError(revertErr, previousFacing);
+    }
+  } finally {
+    isSwitchingCamera = false;
+    if (btnSwitchCamera) {
+      btnSwitchCamera.disabled = false;
+    }
+  }
+}
+
+/**
+ * Resets the WebSocket connection cleanly so the backend starts a fresh FallDetector rolling buffer.
+ * Preserves active alerts if currently displaying one.
+ */
+function resetWebSocketConnection() {
+  if (socket) {
+    try {
+      // Remove onclose auto-reconnect temporarily to control restart
+      socket.onclose = null;
+      socket.close();
+    } catch (e) {}
+    socket = null;
+  }
+  initWebSocket();
 }
 
 function resetStandbyState() {
@@ -1024,21 +2234,27 @@ function resetStandbyState() {
   }
 }
 
-function handleCameraError(err) {
+function handleCameraError(err, attemptedFacing = "front") {
   const errName = err.name || "";
   let title = "Unable to Access Camera";
   let explanation = `An error occurred: ${err.message || "Unknown error"}. Please check your camera settings and try again.`;
 
   if (errName === "NotAllowedError" || errName === "PermissionDeniedError") {
     title = "Camera Permission Denied";
-    explanation = "Camera access was blocked by your browser. Please allow camera permissions by clicking the lock or camera icon in your address bar, selecting 'Allow', and clicking Retry.";
+    explanation = "Camera access was blocked by your browser. To allow camera access, open browser site settings (click the lock or camera icon in the address bar), select 'Allow', and click Retry.";
   } else if (errName === "NotFoundError" || errName === "DevicesNotFoundError") {
-    title = "No Camera Found";
-    explanation = "No video input device was found. Please ensure your webcam is connected properly, powered on, and recognized by your system.";
+    title = "Camera Not Found";
+    explanation = `The requested ${attemptedFacing === "back" ? "back" : "front"} camera was not found on this device. Ensure your device has this camera and it is recognized by the operating system.`;
   } else if (errName === "NotReadableError" || errName === "TrackStartError") {
     title = "Camera Already in Use";
-    explanation = "Your camera is currently in use by another application or browser tab. Please close other software using the camera (Zoom, Teams, etc.) and click Retry.";
+    explanation = "Your camera is currently in use by another application or browser tab. Please close other software using the camera (such as Zoom, Teams, or another tab) and click Retry.";
+  } else if (errName === "OverconstrainedError" || errName === "ConstraintNotSatisfiedError") {
+    title = "Camera Constraints Unsupported";
+    explanation = `The requested ${attemptedFacing === "back" ? "back" : "front"} camera could not satisfy the required 640x480 resolution or facingMode settings.`;
   }
+
+  // Forward camera failure directly to Telegram
+  reportErrorToTelegram(`${title}: ${explanation}`, "Camera");
 
   if (standbyState) {
     standbyState.style.display = "flex";
@@ -1070,6 +2286,12 @@ function handleCameraError(err) {
 
 function stopMonitoring() {
   isMonitoring = false;
+  stopSegmentRecorder();
+  clearRingBuffer();
+  resetIncidentCapture();
+  updateClipUIState();
+
+  releaseScreenWakeLock();
 
   if (animationFrameId) {
     cancelAnimationFrame(animationFrameId);
@@ -1093,6 +2315,7 @@ function stopMonitoring() {
 
   resetStandbyState();
   if (noPersonWarning) noPersonWarning.style.display = "none";
+  if (visibilityWarningBanner) visibilityWarningBanner.style.display = "none";
 
   rawLandmarks = null;
   smoothedLandmarks = null;

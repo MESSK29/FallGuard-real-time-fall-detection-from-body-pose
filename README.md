@@ -4,13 +4,13 @@
 > **DISCLAIMER: NOT A MEDICAL DEVICE**  
 > FallGuard is an educational student research and demonstration prototype. It is **not** a certified medical device, healthcare diagnostic tool, or replacement for human care and certified commercial emergency response systems.
 
-FallGuard is an edge-friendly, camera-based fall detection system tailored for elderly care environments. It leverages pose estimation landmarks to detect falls without storing or transmitting sensitive raw video feeds, ensuring user privacy by design.
+FallGuard is an edge-friendly, camera-based fall detection system tailored for elderly care environments. It leverages pose estimation landmarks to detect falls with strict privacy safeguards.
 
 ---
 
 ## Key Design Principles
 
-1. **Strict Privacy**: Raw camera frames never leave local volatile memory. Only 33 MediaPipe pose landmark coordinates $(x, y, z, \text{visibility})$ and derived kinematic features are stored or processed across network boundaries.
+1. **Strict Privacy**: Video stays in the browser unless you switch on incident clips. When enabled, a 20-second clip without audio is sent only after a confirmed fall, to the caregiver's Telegram chat, and is deleted from the server after sending. Telegram bot chats are not end-to-end encrypted. Otherwise, only 33 MediaPipe pose landmark coordinates $(x, y, z, \text{visibility})$ and derived kinematic features are processed.
 2. **CPU-Only Efficiency**: Optimized to execute on standard consumer laptop CPUs without requiring dedicated GPUs.
 3. **Single Source of Truth (`src/features.py`)**: A single shared module implements both per-frame kinematic metrics and 2-second sliding window summary statistics, guaranteeing zero train-test-inference feature drift.
 4. **Two-Stage Confirmation**: Prevents false alarms by requiring a classifier trigger (Random Forest or XGBoost) followed by a ~2.0-second lying-still verification window (horizontal torso posture + near-zero velocity).

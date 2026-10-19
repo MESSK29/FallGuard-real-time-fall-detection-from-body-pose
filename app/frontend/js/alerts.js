@@ -124,6 +124,28 @@ function renderAlertRows(alerts, tbody) {
       const tgClass = alert.telegram_sent ? "badge-tg sent" : "badge-tg unsent";
       const tgLabel = alert.telegram_sent ? "Sent" : "No";
 
+      // Incident Clip pill
+      const clipRaw = String(alert.clip_status || "disabled");
+      let clipClass = "badge-clip disabled";
+      let clipLabel = "Disabled";
+
+      if (clipRaw === "sent") {
+        clipClass = "badge-clip sent";
+        clipLabel = "Sent";
+      } else if (clipRaw === "pending" || clipRaw === "processing") {
+        clipClass = "badge-clip pending";
+        clipLabel = "Pending";
+      } else if (clipRaw.startsWith("skipped")) {
+        clipClass = "badge-clip skipped";
+        clipLabel = "Skipped";
+      } else if (clipRaw.startsWith("failed")) {
+        clipClass = "badge-clip failed";
+        clipLabel = "Failed";
+      } else if (clipRaw.startsWith("expired")) {
+        clipClass = "badge-clip skipped";
+        clipLabel = "Expired";
+      }
+
       // Dismiss action button (if confirmed and not dismissed)
       let actionBtn = `<span style="color: var(--text-faint); font-size: 0.8rem;">--</span>`;
       if (alert.status === "confirmed" && !alert.is_test) {
@@ -150,6 +172,9 @@ function renderAlertRows(alerts, tbody) {
           </td>
           <td>
             <span class="${tgClass}">${tgLabel}</span>
+          </td>
+          <td>
+            <span class="${clipClass}" title="${escapeHtml(clipRaw)}">${clipLabel}</span>
           </td>
           <td>
             ${actionBtn}
